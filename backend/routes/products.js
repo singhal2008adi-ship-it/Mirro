@@ -1,33 +1,83 @@
-const express = require('express');
+const axios = require('axios');
+const cheerio = require('cheerio');
 const puppeteer = require('puppeteer');
 const db = require('../db');
 
 const router = express.Router();
 
-// Helper to scrape basic product info
+// Helper to scrape basic product info using Cheerio (Fast & Reliable)
 const scrapeProductInfo = async (url) => {
+    try {
+        console.log(`Scraping with Axios/Cheerio: ${url}`);
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            },
+            timeout: 8000
+        });
+
+        const $ = cheerio.load(response.data);
+
+        // Metadata extraction
+        const title = $('meta[property="og:title"]').attr('content') ||
+            $('meta[name="twitter:title"]').attr('content') ||
+            $('title').text() || 'Unknown Product';
+
+        let image = $('meta[property="og:image"]').attr('content') ||
+            $('meta[name="twitter:image"]').attr('content') ||
+            $('img').first().attr('src');
+
+        // Basic price extraction from common patterns
+        let price = null;
+        const priceSelectors = [
+            '.a-price-whole', '.buyingPrice', '[data-price]',
+            '.price', '.current-price', '.pdp-price', '.product-price'
+        ];
+
+        for (const selector of priceSelectors) {
+            const el = $(selector);
+            if (el.length > 0) {
+                price = el.first().text().trim();
+                if (price) break;
+            }
+        }
+
+        if (!price) {
+            const bodyText = $('body').text();
+            const priceMatch = bodyText.match(/₹[\s]*([\d,]+(\.\d{1,2})?)/);
+            price = priceMatch ? priceMatch[0] : null;
+        }
+
+        return { title, image, price };
+    } catch (error) {
+        console.warn('Cheerio scraping failed, trying Puppeteer fallback...', error.message);
+        return await scrapeWithPuppeteer(url);
+    }
+};
+
+// Fallback Puppeteer scraper
+const scrapeWithPuppeteer = async (url) => {
     let browser;
     try {
         browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            headless: 'new',
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         });
         const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
 
-        // Set a timeout of 10s so the API doesn't hang forever
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 10000 });
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 15000 });
 
         const productData = await page.evaluate(() => {
-            // Look for standard Open Graph meta tags
             const getMeta = (prop) => {
-                const el = document.querySelector(`meta[property="${prop}"]`) || document.querySelector(`meta[name="${prop.replace('og:', '')}"]`);
+                const el = document.querySelector(`meta[property="${prop}"]`) ||
+                    document.querySelector(`meta[name="${prop.replace('og:', '')}"]`);
                 return el ? el.getAttribute('content') : null;
             };
 
             const title = getMeta('og:title') || document.title || 'Unknown Product';
-            const image = getMeta('og:image') || 'https://via.placeholder.com/300x400?text=No+Image+Found';
+            const image = getMeta('og:image') || (document.querySelector('img') ? document.querySelector('img').src : null);
 
-            // Attempt to extract INR price from text (basic regex heuristics)
             const bodyText = document.body.innerText;
             const priceMatch = bodyText.match(/₹[\s]*([\d,]+(\.\d{1,2})?)/);
             const price = priceMatch ? priceMatch[0] : null;
@@ -37,7 +87,7 @@ const scrapeProductInfo = async (url) => {
 
         return productData;
     } catch (error) {
-        console.error('Puppeteer scraping error:', error);
+        console.error('Puppeteer fallback failed:', error.message);
         return null;
     } finally {
         if (browser) await browser.close();

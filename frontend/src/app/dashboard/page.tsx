@@ -99,14 +99,26 @@ export default function DashboardPage() {
                 clothingId = data.id;
             } else if (linkInput) {
                 // Extract product via backend link extraction
+                console.log(`Extracting from link: ${linkInput}`);
                 const extractRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products/extract`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url: linkInput, userId: 'mock-id' }),
                 });
+
+                if (!extractRes.ok) {
+                    const errorData = await extractRes.json();
+                    throw new Error(errorData.error || 'Failed to extract product from link');
+                }
+
                 const extractData = await extractRes.json();
+                console.log('Extraction success:', extractData);
                 clothingId = extractData.id;
-                extractedProductName = extractData.productName;
+                extractedProductName = extractData.productName || extractedProductName;
+
+                if (!clothingId) {
+                    throw new Error('Could not save extracted clothing item.');
+                }
             }
 
             if (!personId || !clothingId) {

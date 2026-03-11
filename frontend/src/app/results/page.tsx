@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ArrowLeft, Download, Share2, Heart, ExternalLink } from "lucide-react";
+import { useEffect, useState, Suspense } from "react";
+import { ArrowLeft, Download, Share2, Heart } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -13,7 +13,7 @@ interface TryOnResult {
     // Additional fields can be added later (price comparison, etc.)
 }
 
-export default function ResultsPage() {
+function ResultsContent() {
     const searchParams = useSearchParams();
     const resultId = searchParams?.get("id");
     const [result, setResult] = useState<TryOnResult | null>(null);
@@ -34,8 +34,8 @@ export default function ResultsPage() {
                 }
                 const data = await res.json();
                 setResult(data);
-            } catch (e: any) {
-                setError(e.message);
+            } catch (e: unknown) {
+                setError(e instanceof Error ? e.message : String(e));
             } finally {
                 setLoading(false);
             }
@@ -123,5 +123,21 @@ export default function ResultsPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function ResultsPage() {
+    return (
+        <Suspense fallback={
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                <div className="relative w-24 h-24 mb-8">
+                    <div className="absolute inset-0 border-4 border-accent rounded-full"></div>
+                    <div className="absolute inset-0 border-4 border-foreground rounded-full border-t-transparent animate-spin"></div>
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Loading...</h2>
+            </div>
+        }>
+            <ResultsContent />
+        </Suspense>
     );
 }

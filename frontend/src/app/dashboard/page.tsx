@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import Webcam from 'react-webcam';
 import { Camera, Image as ImageIcon, Link as LinkIcon, Upload, CheckCircle2, Loader2, ScanLine } from 'lucide-react';
 import { useRouter } from 'next/navigation';

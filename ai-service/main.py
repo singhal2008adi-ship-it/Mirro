@@ -27,7 +27,7 @@ async def generate_tryon(request: TryOnRequest):
     
     return {
         "status": "success",
-        "generated_image_url": "https://via.placeholder.com/600x800?text=Try-On+Result"
+        "generated_image_url": "https://images.unsplash.com/photo-1617137968427-83c394297941?q=80&w=600&h=800&auto=format&fit=crop"
     }
 
 @app.post("/scrape-product")

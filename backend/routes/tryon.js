@@ -26,18 +26,21 @@ router.post('/', async (req, res) => {
         const finalProductName = productName || clothingRes.rows[0].product_name || 'Clothing Item';
         const personImageUrl = personRes.rows[0].image_url;
 
-        // 2. Call Python AI Microservice (Mock)
-        const generatedImageUrl = 'https://via.placeholder.com/600x800?text=Try-On+Result';
+        // 2. Call Python AI Microservice
+        console.log(`Calling AI service at ${PYTHON_SERVICE_URL}/try-on`);
+        const aiRes = await axios.post(`${PYTHON_SERVICE_URL}/try-on`, {
+            clothing_image_url: clothingImageUrl,
+            person_image_url: personImageUrl
+        });
+
+        const generatedImageUrl = aiRes.data.generated_image_url;
 
         // 3. Save result to TryOnResults table
-        let resultId = null;
-        if (userId) {
-            const dbResult = await db.query(
-                'INSERT INTO TryOnResults (user_id, clothing_image, person_image, generated_image, product_name) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-                [userId, clothingImageUrl, personImageUrl, generatedImageUrl, finalProductName]
-            );
-            resultId = dbResult.rows[0].id;
-        }
+        const dbResult = await db.query(
+            'INSERT INTO TryOnResults (user_id, clothing_image, person_image, generated_image, product_name) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+            [userId || 'mock-id', clothingImageUrl, personImageUrl, generatedImageUrl, finalProductName]
+        );
+        const resultId = dbResult.rows[0].id;
 
         res.status(201).json({
             id: resultId,
@@ -47,7 +50,7 @@ router.post('/', async (req, res) => {
             product_name: finalProductName
         });
     } catch (error) {
-        console.error('Try-On error:', error);
+        console.error('Try-On error:', error.message);
         res.status(500).json({ error: 'Failed to generate try-on result' });
     }
 });

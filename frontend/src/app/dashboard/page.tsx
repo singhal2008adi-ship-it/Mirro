@@ -67,7 +67,7 @@ export default function DashboardPage() {
             let personId: string | undefined;
             if (personImage) {
                 const file = await fetch(personImage).then(r => r.blob()).then(b => new File([b], 'person.jpg'));
-                const res = await fetch('http://localhost:5001/upload/user-image', {
+                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/upload/user-image`, {
                     method: 'POST',
                     body: (() => {
                         const fd = new FormData();
@@ -80,11 +80,13 @@ export default function DashboardPage() {
                 personId = data.id;
             }
 
-            // Determine clothing image ID
+            // Determine clothing image ID and name
             let clothingId: string | undefined;
+            let extractedProductName = 'Captured Outfit';
+
             if (clothingImage) {
                 const file = await fetch(clothingImage).then(r => r.blob()).then(b => new File([b], 'clothing.jpg'));
-                const res = await fetch('http://localhost:5001/upload/clothing-image', {
+                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/upload/clothing-image`, {
                     method: 'POST',
                     body: (() => {
                         const fd = new FormData();
@@ -97,13 +99,14 @@ export default function DashboardPage() {
                 clothingId = data.id;
             } else if (linkInput) {
                 // Extract product via backend link extraction
-                const extractRes = await fetch('http://localhost:5001/products/extract', {
+                const extractRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products/extract`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url: linkInput, userId: 'mock-id' }),
                 });
                 const extractData = await extractRes.json();
                 clothingId = extractData.id;
+                extractedProductName = extractData.productName;
             }
 
             if (!personId || !clothingId) {
@@ -111,10 +114,15 @@ export default function DashboardPage() {
             }
 
             // Call generate-tryon API
-            const tryonRes = await fetch('http://localhost:5001/generate-tryon', {
+            const tryonRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate-tryon`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: 'mock-id', clothingImageId: clothingId, personImageId: personId }),
+                body: JSON.stringify({
+                    userId: 'mock-id',
+                    clothingImageId: clothingId,
+                    personImageId: personId,
+                    productName: extractedProductName
+                }),
             });
             const tryonData = await tryonRes.json();
             const resultId = tryonData.id;

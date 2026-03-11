@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS ClothingImages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES Users(id) ON DELETE CASCADE,
     image_url TEXT NOT NULL,
+    product_name VARCHAR(255),
     source VARCHAR(50) CHECK (source IN ('camera', 'link')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS TryOnResults (
     clothing_image TEXT NOT NULL,
     person_image TEXT NOT NULL,
     generated_image TEXT NOT NULL,
+    product_name VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

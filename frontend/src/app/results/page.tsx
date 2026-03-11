@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
-import { ArrowLeft, Download, Share2, Heart } from "lucide-react";
+import { ArrowLeft, Download, Share2, Heart, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -10,7 +10,24 @@ interface TryOnResult {
     generated_image: string;
     clothing_image: string;
     person_image: string;
-    // Additional fields can be added later (price comparison, etc.)
+    product_name?: string;
+}
+
+interface PriceComparison {
+    marketplace: string;
+    price: string;
+    shipping_cost?: string;
+    product_url: string;
+    image_url: string;
+}
+
+interface SimilarSuggestion {
+    id: string;
+    title: string;
+    price: string;
+    marketplace: string;
+    image_url: string;
+    link: string;
 }
 
 function ResultsContent() {
@@ -19,6 +36,9 @@ function ResultsContent() {
     const [result, setResult] = useState<TryOnResult | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [comparisons, setComparisons] = useState<PriceComparison[]>([]);
+    const [suggestions, setSuggestions] = useState<SimilarSuggestion[]>([]);
+    const [fetchingDetails, setFetchingDetails] = useState(false);
 
     useEffect(() => {
         if (!resultId) {
@@ -28,12 +48,27 @@ function ResultsContent() {
         }
         const fetchResult = async () => {
             try {
-                const res = await fetch(`http://localhost:5001/generate-tryon/${resultId}`);
+                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate-tryon/${resultId}`);
                 if (!res.ok) {
                     throw new Error(`Failed to fetch result (${res.status})`);
                 }
                 const data = await res.json();
                 setResult(data);
+
+                // Fetch comparisons and suggestions once we have the product name
+                if (data.product_name) {
+                    setFetchingDetails(true);
+                    const prodName = encodeURIComponent(data.product_name);
+
+                    const [compRes, suggRes] = await Promise.all([
+                        fetch(`${process.env.NEXT_PUBLIC_API_URL}/products/compare-prices?product_name=${prodName}`),
+                        fetch(`${process.env.NEXT_PUBLIC_API_URL}/products/similar-suggestions?product_name=${prodName}`)
+                    ]);
+
+                    if (compRes.ok) setComparisons(await compRes.json());
+                    if (suggRes.ok) setSuggestions(await suggRes.json());
+                    setFetchingDetails(false);
+                }
             } catch (e: unknown) {
                 setError(e instanceof Error ? e.message : String(e));
             } finally {
@@ -42,6 +77,39 @@ function ResultsContent() {
         };
         fetchResult();
     }, [resultId]);
+
+    const handleShare = async () => {
+        if (!result?.generated_image) return;
+        try {
+            if (navigator.share) {
+                await navigator.share({
+                    title: 'My Mirro Try-On Result',
+                    text: `Check out how this ${result.product_name || 'item'} looks on me!`,
+                    url: window.location.href,
+                });
+            } else {
+                await navigator.clipboard.writeText(window.location.href);
+                alert('Link copied to clipboard!');
+            }
+        } catch (e) {
+            console.error('Share failed', e);
+        }
+    };
+
+    const handleDownload = () => {
+        if (!result?.generated_image) return;
+        const link = document.createElement('a');
+        link.href = result.generated_image;
+        link.download = `mirro-try-on-${resultId}.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const handleSave = () => {
+        // Mock save for now
+        alert('Look saved to your profile!');
+    };
 
     if (loading) {
         return (
@@ -75,13 +143,22 @@ function ResultsContent() {
                     Back to Try‑On
                 </Link>
                 <div className="flex gap-4">
-                    <button className="flex items-center gap-2 px-4 py-2 border border-border rounded-md hover:bg-accent transition-colors text-sm font-medium">
+                    <button
+                        onClick={handleSave}
+                        className="flex items-center gap-2 px-4 py-2 border border-border rounded-md hover:bg-accent transition-colors text-sm font-medium"
+                    >
                         <Heart className="w-4 h-4" /> Save
                     </button>
-                    <button className="flex items-center gap-2 px-4 py-2 border border-border rounded-md hover:bg-accent transition-colors text-sm font-medium">
+                    <button
+                        onClick={handleShare}
+                        className="flex items-center gap-2 px-4 py-2 border border-border rounded-md hover:bg-accent transition-colors text-sm font-medium"
+                    >
                         <Share2 className="w-4 h-4" /> Share
                     </button>
-                    <button className="flex items-center gap-2 px-4 py-2 bg-foreground text-background rounded-md hover:bg-foreground/90 transition-colors text-sm font-medium">
+                    <button
+                        onClick={handleDownload}
+                        className="flex items-center gap-2 px-4 py-2 bg-foreground text-background rounded-md hover:bg-foreground/90 transition-colors text-sm font-medium"
+                    >
                         <Download className="w-4 h-4" /> Download
                     </button>
                 </div>
@@ -105,20 +182,66 @@ function ResultsContent() {
                 {/* Details & Price Comparison */}
                 <div className="flex flex-col space-y-8">
                     <div>
-                        <h2 className="text-3xl font-bold tracking-tight mb-2">Your Virtual Try‑On</h2>
+                        <h2 className="text-3xl font-bold tracking-tight mb-2">
+                            {result?.product_name || "Your Virtual Try‑On"}
+                        </h2>
                         <p className="text-muted-foreground">Generated based on your uploaded images.</p>
                     </div>
 
-                    {/* Placeholder for price comparison – can be populated later */}
                     <div className="space-y-4">
                         <h3 className="text-xl font-semibold border-b border-border pb-2">Price Comparison</h3>
-                        <p className="text-muted-foreground">Price data will appear here once integrated.</p>
+                        {fetchingDetails ? (
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                                <Loader2 className="w-4 h-4 animate-spin" /> Fetching live prices...
+                            </div>
+                        ) : comparisons.length > 0 ? (
+                            <div className="space-y-3">
+                                {comparisons.map((comp, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-3 bg-accent rounded-xl border border-border">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-white rounded-md flex items-center justify-center border border-border">
+                                                <span className="text-[10px] font-bold text-black uppercase">{comp.marketplace.split(' ')[0]}</span>
+                                            </div>
+                                            <div>
+                                                <p className="font-bold">{comp.price}</p>
+                                                <p className="text-xs text-muted-foreground">{comp.marketplace} • {comp.shipping_cost}</p>
+                                            </div>
+                                        </div>
+                                        <a href={comp.product_url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-foreground text-background text-xs font-bold rounded-lg">
+                                            Buy Now
+                                        </a>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-muted-foreground">No price comparisons found for this item.</p>
+                        )}
                     </div>
 
-                    {/* Similar Suggestions placeholder */}
                     <div className="space-y-4 pt-4">
                         <h3 className="text-xl font-semibold border-b border-border pb-2">Similar Suggestions</h3>
-                        <p className="text-muted-foreground">Similar items will be shown here.</p>
+                        {fetchingDetails ? (
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                                <Loader2 className="w-4 h-4 animate-spin" /> Finding similar items...
+                            </div>
+                        ) : suggestions.length > 0 ? (
+                            <div className="grid grid-cols-2 gap-4">
+                                {suggestions.map((sugg) => (
+                                    <div key={sugg.id} className="group">
+                                        <div className="aspect-[3/4] bg-accent rounded-xl overflow-hidden border border-border mb-2 relative">
+                                            <img src={sugg.image_url} alt={sugg.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                                            <div className="absolute top-2 right-2 px-2 py-0.5 bg-background/80 backdrop-blur-sm rounded text-[10px] font-bold">
+                                                {sugg.marketplace}
+                                            </div>
+                                        </div>
+                                        <h4 className="font-medium text-sm line-clamp-1">{sugg.title}</h4>
+                                        <p className="font-bold text-sm">{sugg.price}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-muted-foreground">Looking for similar items...</p>
+                        )}
                     </div>
                 </div>
             </div>

@@ -7,7 +7,7 @@ const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:8
 
 // POST /generate-tryon
 router.post('/', async (req, res) => {
-    const { userId, clothingImageId, personImageId } = req.body;
+    const { userId, clothingImageId, personImageId, productName } = req.body;
 
     if (!clothingImageId || !personImageId) {
         return res.status(400).json({ error: 'clothingImageId and personImageId are required' });
@@ -15,7 +15,7 @@ router.post('/', async (req, res) => {
 
     try {
         // 1. Fetch image URLs from DB
-        const clothingRes = await db.query('SELECT image_url FROM ClothingImages WHERE id = $1', [clothingImageId]);
+        const clothingRes = await db.query('SELECT image_url, product_name FROM ClothingImages WHERE id = $1', [clothingImageId]);
         const personRes = await db.query('SELECT image_url FROM UserImages WHERE id = $1', [personImageId]);
 
         if (clothingRes.rows.length === 0 || personRes.rows.length === 0) {
@@ -23,24 +23,18 @@ router.post('/', async (req, res) => {
         }
 
         const clothingImageUrl = clothingRes.rows[0].image_url;
+        const finalProductName = productName || clothingRes.rows[0].product_name || 'Clothing Item';
         const personImageUrl = personRes.rows[0].image_url;
 
-        // 2. Call Python AI Microservice
-        // const response = await axios.post(`${PYTHON_SERVICE_URL}/try-on`, {
-        //   clothing_image_url: clothingImageUrl,
-        //   person_image_url: personImageUrl
-        // });
-        // const generatedImageUrl = response.data.generated_image_url;
-
-        // Mock response for now
+        // 2. Call Python AI Microservice (Mock)
         const generatedImageUrl = 'https://via.placeholder.com/600x800?text=Try-On+Result';
 
         // 3. Save result to TryOnResults table
         let resultId = null;
         if (userId) {
             const dbResult = await db.query(
-                'INSERT INTO TryOnResults (user_id, clothing_image, person_image, generated_image) VALUES ($1, $2, $3, $4) RETURNING id',
-                [userId, clothingImageUrl, personImageUrl, generatedImageUrl]
+                'INSERT INTO TryOnResults (user_id, clothing_image, person_image, generated_image, product_name) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+                [userId, clothingImageUrl, personImageUrl, generatedImageUrl, finalProductName]
             );
             resultId = dbResult.rows[0].id;
         }
@@ -49,7 +43,8 @@ router.post('/', async (req, res) => {
             id: resultId,
             clothing_image: clothingImageUrl,
             person_image: personImageUrl,
-            generated_image: generatedImageUrl
+            generated_image: generatedImageUrl,
+            product_name: finalProductName
         });
     } catch (error) {
         console.error('Try-On error:', error);

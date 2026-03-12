@@ -60,87 +60,51 @@ export default function DashboardPage() {
 
 
 
+    const [processingStatus, setProcessingStatus] = useState<string>('Analyzing Clothing...');
+
     const processTryOn = async () => {
         setStep('processing');
         try {
-            // Upload person image if not already uploaded (personImage holds preview URL)
-            let personId: string | undefined;
-            if (personImage) {
-                const file = await fetch(personImage).then(r => r.blob()).then(b => new File([b], 'person.jpg'));
-                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/upload/user-image`, {
-                    method: 'POST',
-                    body: (() => {
-                        const fd = new FormData();
-                        fd.append('image', file);
-                        fd.append('type', 'front');
-                        return fd;
-                    })(),
-                });
-                const data = await res.json();
-                personId = data.id;
+            if (!personImage) {
+                throw new Error("Missing person image");
+            }
+            if (!clothingImage) {
+                // As per user instructions, the pipeline now expects a clothing image upload.
+                // Links are no longer processed by backend in this step.
+                throw new Error("Missing clothing image. Please capture or upload a clothing item.");
             }
 
-            // Determine clothing image ID and name
-            let clothingId: string | undefined;
-            let extractedProductName = 'Captured Outfit';
+            setProcessingStatus('Uploading images to Gemini...');
 
-            if (clothingImage) {
-                const file = await fetch(clothingImage).then(r => r.blob()).then(b => new File([b], 'clothing.jpg'));
-                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/upload/clothing-image`, {
-                    method: 'POST',
-                    body: (() => {
-                        const fd = new FormData();
-                        fd.append('image', file);
-                        fd.append('source', 'gallery');
-                        return fd;
-                    })(),
-                });
-                const data = await res.json();
-                clothingId = data.id;
-            } else if (linkInput) {
-                // Extract product via backend link extraction
-                console.log(`Extracting from link: ${linkInput}`);
-                const extractRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products/extract`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: linkInput, userId: 'mock-id' }),
-                });
+            const personFile = await fetch(personImage).then(r => r.blob()).then(b => new File([b], 'person.jpg', { type: b.type || 'image/jpeg' }));
+            const clothingFile = await fetch(clothingImage).then(r => r.blob()).then(b => new File([b], 'clothing.jpg', { type: b.type || 'image/jpeg' }));
 
-                if (!extractRes.ok) {
-                    const errorData = await extractRes.json();
-                    throw new Error(errorData.error || 'Failed to extract product from link');
-                }
+            const formData = new FormData();
+            formData.append("person_image", personFile);
+            formData.append("clothing_image", clothingFile);
 
-                const extractData = await extractRes.json();
-                console.log('Extraction success:', extractData);
-                clothingId = extractData.id;
-                extractedProductName = extractData.productName || extractedProductName;
-
-                if (!clothingId) {
-                    throw new Error('Could not save extracted clothing item.');
-                }
-            }
-
-            if (!personId || !clothingId) {
-                throw new Error('Missing required images');
-            }
-
-            // Call generate-tryon API
-            const tryonRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate-tryon`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: 'mock-id',
-                    clothingImageId: clothingId,
-                    personImageId: personId,
-                    productName: extractedProductName
-                }),
+            const tryonRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001'}/api/tryon`, {
+                method: "POST",
+                body: formData
             });
-            const tryonData = await tryonRes.json();
-            const resultId = tryonData.id;
-            router.push(`/results?id=${resultId}`);
+
+            if (!tryonRes.ok) {
+                throw new Error(`API error: ${tryonRes.status}`);
+            }
+
+            const data = await tryonRes.json();
+            
+            if (data.success && data.image) {
+                // Redirect user to results and pass generated image in local storage or query param
+                // Encoding a large base64 image in query param is bad, let's use localStorage
+                localStorage.setItem("generatedImage", data.image);
+                router.push("/results");
+            } else {
+                throw new Error("Failed to generate image.");
+            }
         } catch (e) {
             console.error(e);
+            alert(e instanceof Error ? e.message : "Error processing try-on");
             setStep('scanner');
         }
     };
@@ -193,7 +157,7 @@ export default function DashboardPage() {
                     <div className="absolute inset-0 border-4 border-foreground rounded-full border-t-transparent animate-spin"></div>
                     <ScanLine className="absolute inset-0 m-auto w-8 h-8 text-foreground animate-pulse" />
                 </div>
-                <h2 className="text-2xl font-bold mb-2">Analyzing Clothing...</h2>
+                <h2 className="text-2xl font-bold mb-2">{processingStatus}</h2>
                 <p className="text-muted-foreground">Preparing your virtual try-on and fetching live prices.</p>
             </div>
         );

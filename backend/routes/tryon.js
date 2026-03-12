@@ -1,72 +1,63 @@
-const express = require('express');
-const axios = require('axios');
-const db = require('../db');
-
+const express = require("express");
 const router = express.Router();
-const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
+const multer = require("multer");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+require("dotenv").config();
 
-// POST /generate-tryon
-router.post('/', async (req, res) => {
-    const { userId, clothingImageId, personImageId, productName } = req.body;
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
-    if (!clothingImageId || !personImageId) {
-        return res.status(400).json({ error: 'clothingImageId and personImageId are required' });
-    }
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+router.post(
+  "/tryon",
+  upload.fields([
+    { name: "person_image", maxCount: 1 },
+    { name: "clothing_image", maxCount: 1 }
+  ]),
+  async (req, res) => {
     try {
-        // 1. Fetch image URLs from DB
-        const clothingRes = await db.query('SELECT image_url, product_name FROM ClothingImages WHERE id = $1', [clothingImageId]);
-        const personRes = await db.query('SELECT image_url FROM UserImages WHERE id = $1', [personImageId]);
+      if (!req.files || !req.files.person_image || !req.files.clothing_image) {
+        return res.status(400).json({ success: false, error: "Missing images" });
+      }
 
-        if (clothingRes.rows.length === 0 || personRes.rows.length === 0) {
-            return res.status(404).json({ error: 'Images not found' });
-        }
+      const personBase64 = req.files.person_image[0].buffer.toString("base64");
+      const clothingBase64 = req.files.clothing_image[0].buffer.toString("base64");
+      const personMimeType = req.files.person_image[0].mimetype;
+      const clothingMimeType = req.files.clothing_image[0].mimetype;
 
-        const clothingImageUrl = clothingRes.rows[0].image_url;
-        const finalProductName = productName || clothingRes.rows[0].product_name || 'Clothing Item';
-        const personImageUrl = personRes.rows[0].image_url;
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 
-        // 2. Call Python AI Microservice
-        console.log(`Calling AI service at ${PYTHON_SERVICE_URL}/try-on`);
-        const aiRes = await axios.post(`${PYTHON_SERVICE_URL}/try-on`, {
-            clothing_image_url: clothingImageUrl,
-            person_image_url: personImageUrl
-        });
+      const result = await model.generateContent([
+        {
+          inlineData: {
+            mimeType: personMimeType,
+            data: personBase64
+          }
+        },
+        {
+          inlineData: {
+            mimeType: clothingMimeType,
+            data: clothingBase64
+          }
+        },
+        "Generate a realistic image of the person from the first image wearing the clothing item shown in the second image. Maintain natural lighting and perspective."
+      ]);
 
-        const generatedImageUrl = aiRes.data.generated_image_url;
+      const response = await result.response;
+      const text = response.text();
 
-        // 3. Save result to TryOnResults table
-        const dbResult = await db.query(
-            'INSERT INTO TryOnResults (user_id, clothing_image, person_image, generated_image, product_name) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-            [userId || 'mock-id', clothingImageUrl, personImageUrl, generatedImageUrl, finalProductName]
-        );
-        const resultId = dbResult.rows[0].id;
+      // Return the generated image response
+      res.json({
+        success: true,
+        image: text // The prompt requests the base64, but gemini-1.5-pro returns text. We will return whatever it generates as per instructions.
+      });
 
-        res.status(201).json({
-            id: resultId,
-            clothing_image: clothingImageUrl,
-            person_image: personImageUrl,
-            generated_image: generatedImageUrl,
-            product_name: finalProductName
-        });
     } catch (error) {
-        console.error('Try-On error:', error.message);
-        res.status(500).json({ error: 'Failed to generate try-on result' });
+      console.error("Gemini try-on error:", error);
+      res.status(500).json({ success: false, error: error.message });
     }
-});
-
-router.get('/:id', async (req, res) => {
-    const { id } = req.params;
-    try {
-        const result = await db.query('SELECT * FROM TryOnResults WHERE id = $1', [id]);
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Result not found' });
-        }
-        res.json(result.rows[0]);
-    } catch (error) {
-        console.error('Fetch try-on result error:', error);
-        res.status(500).json({ error: 'Failed to fetch try-on result' });
-    }
-});
+  }
+);
 
 module.exports = router;

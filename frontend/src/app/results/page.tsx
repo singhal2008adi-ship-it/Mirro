@@ -40,43 +40,25 @@ function ResultsContent() {
     const [suggestions, setSuggestions] = useState<SimilarSuggestion[]>([]);
     const [fetchingDetails, setFetchingDetails] = useState(false);
 
+    const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+
     useEffect(() => {
-        if (!resultId) {
-            setError("No result ID provided.");
-            setLoading(false);
-            return;
+        // Read generated image from localStorage
+        const storedImage = localStorage.getItem("generatedImage");
+        if (storedImage) {
+            // Append base64 prefix if missing
+            const imageSrc = storedImage.startsWith("data:image") ? storedImage : `data:image/jpeg;base64,${storedImage}`;
+            setGeneratedImage(imageSrc);
+            setResult({
+                id: "gemini-result",
+                generated_image: imageSrc,
+                clothing_image: "",
+                person_image: "",
+                product_name: "Virtual Try-On Output"
+            });
         }
-        const fetchResult = async () => {
-            try {
-                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate-tryon/${resultId}`);
-                if (!res.ok) {
-                    throw new Error(`Failed to fetch result (${res.status})`);
-                }
-                const data = await res.json();
-                setResult(data);
-
-                // Fetch comparisons and suggestions once we have the product name
-                if (data.product_name) {
-                    setFetchingDetails(true);
-                    const prodName = encodeURIComponent(data.product_name);
-
-                    const [compRes, suggRes] = await Promise.all([
-                        fetch(`${process.env.NEXT_PUBLIC_API_URL}/products/compare-prices?product_name=${prodName}`),
-                        fetch(`${process.env.NEXT_PUBLIC_API_URL}/products/similar-suggestions?product_name=${prodName}`)
-                    ]);
-
-                    if (compRes.ok) setComparisons(await compRes.json());
-                    if (suggRes.ok) setSuggestions(await suggRes.json());
-                    setFetchingDetails(false);
-                }
-            } catch (e: unknown) {
-                setError(e instanceof Error ? e.message : String(e));
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchResult();
-    }, [resultId]);
+        setLoading(false);
+    }, []);
 
     const handleShare = async () => {
         if (!result?.generated_image) return;
@@ -166,8 +148,8 @@ function ResultsContent() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                 {/* Result Image */}
-                <div className="flex flex-col items-center">
-                    <div className="w-full max-w-md aspect-[3/4] bg-accent rounded-2xl border border-border overflow-hidden relative shadow-lg">
+                <div className="flex flex-col space-y-8">
+                    <div className="w-full aspect-[3/4] bg-accent rounded-2xl border border-border overflow-hidden relative shadow-lg">
                         {result?.generated_image ? (
                             <img src={result.generated_image} alt="Try‑On Result" className="w-full h-full object-cover" />
                         ) : (
@@ -176,6 +158,30 @@ function ResultsContent() {
                                 <p className="font-medium">AI Try‑On Result goes here.</p>
                             </div>
                         )}
+                    </div>
+
+                    {/* Your Inputs Section */}
+                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
+                        <div className="space-y-2">
+                            <p className="text-xs font-bold uppercase text-muted-foreground tracking-wider">Your Photo</p>
+                            <div className="aspect-[3/4] bg-accent rounded-xl overflow-hidden border border-border">
+                                {result?.person_image ? (
+                                    <img src={result.person_image} alt="Original Person" className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">No original photo</div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <p className="text-xs font-bold uppercase text-muted-foreground tracking-wider">Clothing Item</p>
+                            <div className="aspect-[3/4] bg-accent rounded-xl overflow-hidden border border-border">
+                                {result?.clothing_image ? (
+                                    <img src={result.clothing_image} alt="Selected Clothing" className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">No item photo</div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
 
